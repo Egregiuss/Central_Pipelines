@@ -1,0 +1,68 @@
+name: Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        type: string
+        required: true
+        # Accepted values: 'node' | 'python'
+      node-version:
+        type: string
+        default: '24'
+      python-version:
+        type: string
+        default: '3.11'
+      working-directory:
+        type: string
+        default: '.'
+
+jobs:
+  security-scan:
+    name: Security scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable Corepack (Node)
+        if: inputs.language == 'node'
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        if: inputs.language == 'node'
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: yarn
+
+      - name: Install Node dependencies
+        if: inputs.language == 'node'
+        run: yarn install --immutable
+
+      - name: Audit Node dependencies
+        if: inputs.language == 'node'
+        run: yarn npm audit --severity high
+
+      - uses: actions/setup-python@v5
+        if: inputs.language == 'python'
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+
+      - name: Install Python dependencies
+        if: inputs.language == 'python'
+        run: pip install -r requirements.txt
+
+      - name: Audit Python dependencies
+        if: inputs.language == 'python'
+        run: pip install pip-audit && pip-audit -r requirements.txt
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.working-directory }}
+          severity: HIGH,CRITICAL
+          exit-code: '0'
