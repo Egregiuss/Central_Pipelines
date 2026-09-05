@@ -16,7 +16,7 @@ Reusable GitHub Actions workflows for all services.
 ```yaml
 jobs:
   pipeline:
-    uses: Egregiuss/central-pipelines/.github/workflows/node-pipeline.yml@main
+    uses: Egregiuss/central_repo/.github/workflows/node-pipeline.yml@main
     with:
       node-version: '24'
       gar-repository: my-app
