@@ -24,6 +24,7 @@ on:
       cloud-run-env-vars:
         type: string
         default: ''
+        # Base env vars (no secrets). Secret-based vars are appended automatically.
     secrets:
       GCP_REGION:
         required: true
@@ -34,6 +35,14 @@ on:
       CLOUD_RUN_SERVICE:
         required: true
       POSTGRES_PASSWORD_SECRET_NAME:
+        required: false
+      BACKSTAGE_BASE_URL:
+        required: false
+      POSTGRES_HOST:
+        required: false
+      POSTGRES_PORT:
+        required: false
+      POSTGRES_USER:
         required: false
 
 jobs:
@@ -91,6 +100,17 @@ jobs:
           docker push "${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}:${{ github.sha }}"
           docker push "${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}:latest"
 
+      - name: Build env vars string
+        id: envvars
+        run: |
+          ENV_VARS="${{ inputs.cloud-run-env-vars }}"
+          [ -n "${{ secrets.BACKSTAGE_BASE_URL }}" ] && ENV_VARS="${ENV_VARS},BACKSTAGE_BASE_URL=${{ secrets.BACKSTAGE_BASE_URL }}"
+          [ -n "${{ secrets.POSTGRES_HOST }}" ]      && ENV_VARS="${ENV_VARS},POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}"
+          [ -n "${{ secrets.POSTGRES_PORT }}" ]      && ENV_VARS="${ENV_VARS},POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}"
+          [ -n "${{ secrets.POSTGRES_USER }}" ]      && ENV_VARS="${ENV_VARS},POSTGRES_USER=${{ secrets.POSTGRES_USER }}"
+          ENV_VARS="${ENV_VARS#,}"
+          echo "value=${ENV_VARS}" >> $GITHUB_OUTPUT
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${{ secrets.CLOUD_RUN_SERVICE }}" \
@@ -101,5 +121,5 @@ jobs:
             --allow-unauthenticated \
             --port=${{ inputs.cloud-run-port }} \
             ${{ inputs.cloud-sql-instances != '' && format('--add-cloudsql-instances="{0}"', inputs.cloud-sql-instances) || '' }} \
-            ${{ inputs.cloud-run-env-vars != '' && format('--set-env-vars="{0}"', inputs.cloud-run-env-vars) || '' }} \
+            ${{ steps.envvars.outputs.value != '' && format('--set-env-vars="{0}"', steps.envvars.outputs.value) || '' }} \
             --set-secrets="POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_SECRET_NAME }}:latest"
