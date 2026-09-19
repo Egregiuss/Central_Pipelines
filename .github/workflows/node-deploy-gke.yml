@@ -83,8 +83,9 @@ jobs:
             --description="Docker images for ${{ inputs.gar-repository }}"
 
       - name: Build and push Docker image
+        env:
+          IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}
         run: |
-          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
           docker build . \
             --file ${{ inputs.dockerfile }} \
             --tag "${IMAGE}:${{ github.sha }}" \
@@ -103,8 +104,9 @@ jobs:
         run: kubectl get namespace ${{ inputs.k8s-namespace }} || kubectl create namespace ${{ inputs.k8s-namespace }}
 
       - name: Deploy to GKE
+        env:
+          IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}
         run: |
-          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
           sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}:${{ github.sha }}|g" ${{ inputs.k8s-manifests-dir }}/*.yaml
           kubectl apply -f ${{ inputs.k8s-manifests-dir }}/ -n ${{ inputs.k8s-namespace }}
           kubectl rollout status deployment/${{ inputs.image-name }} -n ${{ inputs.k8s-namespace }}
