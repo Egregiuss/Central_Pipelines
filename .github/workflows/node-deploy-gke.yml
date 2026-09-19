@@ -83,15 +83,17 @@ jobs:
             --description="Docker images for ${{ inputs.gar-repository }}"
 
       - name: Build and push Docker image
-        env:
-          IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}
         run: |
+          REGION=$(echo "${{ secrets.GCP_REGION }}" | tr -d '[:space:]')
+          PROJECT=$(echo "${{ secrets.GCP_PROJECT_ID }}" | tr -d '[:space:]')
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
           docker build . \
             --file ${{ inputs.dockerfile }} \
             --tag "${IMAGE}:${{ github.sha }}" \
             --tag "${IMAGE}:latest"
           docker push "${IMAGE}:${{ github.sha }}"
           docker push "${IMAGE}:latest"
+          echo "IMAGE=${IMAGE}" >> $GITHUB_ENV
 
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
@@ -104,8 +106,6 @@ jobs:
         run: kubectl get namespace ${{ inputs.k8s-namespace }} || kubectl create namespace ${{ inputs.k8s-namespace }}
 
       - name: Deploy to GKE
-        env:
-          IMAGE: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}
         run: |
           sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}:${{ github.sha }}|g" ${{ inputs.k8s-manifests-dir }}/*.yaml
           kubectl apply -f ${{ inputs.k8s-manifests-dir }}/ -n ${{ inputs.k8s-namespace }}
