@@ -1,0 +1,110 @@
+name: Node Deploy to GKE
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: '24'
+      gar-repository:
+        type: string
+        required: true
+      image-name:
+        type: string
+        required: true
+      dockerfile:
+        type: string
+        default: Dockerfile
+      gke-cluster:
+        type: string
+        required: true
+      gke-zone:
+        type: string
+        required: true
+      k8s-namespace:
+        type: string
+        default: default
+      k8s-manifests-dir:
+        type: string
+        default: k8s
+    secrets:
+      GCP_REGION:
+        required: true
+      GCP_PROJECT_ID:
+        required: true
+      WORKLOAD_IDENTITY_PROVIDER:
+        required: true
+      GCP_SERVICE_ACCOUNT:
+        required: true
+
+jobs:
+  deploy:
+    name: Build image and deploy to GKE
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build
+        run: yarn build:all
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Ensure Artifact Registry repository exists
+        run: |
+          gcloud artifacts repositories describe "${{ inputs.gar-repository }}" \
+            --location="${{ secrets.GCP_REGION }}" \
+          || gcloud artifacts repositories create "${{ inputs.gar-repository }}" \
+            --repository-format=docker \
+            --location="${{ secrets.GCP_REGION }}" \
+            --description="Docker images for ${{ inputs.gar-repository }}"
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
+          docker build . \
+            --file ${{ inputs.dockerfile }} \
+            --tag "${IMAGE}:${{ github.sha }}" \
+            --tag "${IMAGE}:latest"
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ inputs.gke-cluster }}
+          location: ${{ inputs.gke-zone }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Ensure namespace exists
+        run: kubectl get namespace ${{ inputs.k8s-namespace }} || kubectl create namespace ${{ inputs.k8s-namespace }}
+
+      - name: Deploy to GKE
+        run: |
+          IMAGE="${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
+          sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}:${{ github.sha }}|g" ${{ inputs.k8s-manifests-dir }}/*.yaml
+          kubectl apply -f ${{ inputs.k8s-manifests-dir }}/ -n ${{ inputs.k8s-namespace }}
+          kubectl rollout status deployment/${{ inputs.image-name }} -n ${{ inputs.k8s-namespace }}
