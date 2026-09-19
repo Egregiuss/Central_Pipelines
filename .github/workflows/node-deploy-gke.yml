@@ -71,21 +71,29 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker "${{ secrets.GCP_REGION }}-docker.pkg.dev" --quiet
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+        run: gcloud auth configure-docker "$(echo ${GCP_REGION} | tr -d '[:space:]')-docker.pkg.dev" --quiet
 
       - name: Ensure Artifact Registry repository exists
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
         run: |
+          REGION=$(echo "${GCP_REGION}" | tr -d '[:space:]')
           gcloud artifacts repositories describe "${{ inputs.gar-repository }}" \
-            --location="${{ secrets.GCP_REGION }}" \
+            --location="${REGION}" \
           || gcloud artifacts repositories create "${{ inputs.gar-repository }}" \
             --repository-format=docker \
-            --location="${{ secrets.GCP_REGION }}" \
+            --location="${REGION}" \
             --description="Docker images for ${{ inputs.gar-repository }}"
 
       - name: Build and push Docker image
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
-          REGION=$(echo "${{ secrets.GCP_REGION }}" | tr -d '[:space:]')
-          PROJECT=$(echo "${{ secrets.GCP_PROJECT_ID }}" | tr -d '[:space:]')
+          REGION=$(echo "${GCP_REGION}" | tr -d '[:space:]')
+          PROJECT=$(echo "${GCP_PROJECT_ID}" | tr -d '[:space:]')
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${{ inputs.gar-repository }}/${{ inputs.image-name }}"
           docker build . \
             --file ${{ inputs.dockerfile }} \
